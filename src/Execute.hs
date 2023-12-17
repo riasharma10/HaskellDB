@@ -197,6 +197,77 @@ renameCellInRow oldName newName (Row rowMap) =
     Just cell -> Row $ Map.insert newName cell $ Map.delete oldName rowMap
     Nothing -> Row rowMap
 
+-- TEST:
+testAlterTable :: Test
+testAlterTable = TestList [testAddColumn, testDropColumn, testRenameColumn]
+
+testAddColumn :: Test
+testAddColumn = TestCase $ do
+  let tableName = TableName "testTable"
+  let initialTable = createEmptyTable tableName
+  initialTableVar <- liftIO $ newTVarIO initialTable
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  let newColumn = ColumnDefinition (ColumnName "newCol") CellTypeInt
+  let alterAction = AddColumn newColumn
+
+  let result = runStateT (executeAlter tableName alterAction) initialDb
+  (outcome, finalDb) <- liftIO result
+
+  assertEqual "AddColumn should succeed" (Right []) outcome
+
+  updatedTable <- liftIO $ readTVarIO (databaseTables finalDb Map.! tableName)
+  --   updatedTable <- liftIO $ readTVarIO updatedTableVar
+  let columnExists = newColumn `elem` tableDefinition updatedTable
+  assertBool "New column should be added to the table" columnExists
+
+testDropColumn :: Test
+testDropColumn = TestCase $ do
+  let tableName = TableName "testTable"
+  let colNameToDrop = ColumnName "existingCol"
+  let colDefs = [ColumnDefinition colNameToDrop CellTypeInt]
+  let initialTable = Table {tableName = tableName, tableDefinition = colDefs, tableRows = Map.fromList [(PrimaryKey 0, Row $ Map.fromList [(ColumnName "col1", CellInt 123)])], tableNextPrimaryKey = PrimaryKey 1, tableIndices = []}
+  initialTableVar <- liftIO $ newTVarIO initialTable
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  let alterAction = DropColumn colNameToDrop
+
+  let result = runStateT (executeAlter tableName alterAction) initialDb
+  (outcome, finalDb) <- liftIO result
+
+  assertEqual "DropColumn should succeed" (Right []) outcome
+
+  updatedTable <- liftIO $ readTVarIO (databaseTables finalDb Map.! tableName)
+  --   updatedTable <- liftIO $ readTVarIO updatedTableVar
+
+  let columnExists = any ((== colNameToDrop) . columnDefinitionName) (tableDefinition updatedTable)
+  assertBool "Column should not be in the table" (not columnExists)
+
+testRenameColumn :: Test
+testRenameColumn = TestCase $ do
+  let tableName = TableName "testTable"
+  let colToRename = ColumnName "oldColName"
+  let colDefs = [ColumnDefinition colToRename CellTypeInt]
+  let initialTable = Table {tableName = tableName, tableDefinition = colDefs, tableRows = Map.fromList [(PrimaryKey 0, Row $ Map.fromList [(ColumnName "col1", CellInt 123)])], tableNextPrimaryKey = PrimaryKey 1, tableIndices = []}
+  initialTableVar <- liftIO $ newTVarIO initialTable
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  let renamedCol = ColumnName "newColName"
+  let alterAction = RenameColumn colToRename renamedCol
+
+  let result = runStateT (executeAlter tableName alterAction) initialDb
+  (outcome, finalDb) <- liftIO result
+
+  assertEqual "RenameColumn should succeed" (Right []) outcome
+
+  updatedTable <- liftIO $ readTVarIO (databaseTables finalDb Map.! tableName)
+  --   updatedTable <- liftIO $ readTVarIO updatedTableVar
+
+  let oldColumnExists = any ((== colToRename) . columnDefinitionName) (tableDefinition updatedTable)
+  let newColumnExists = any ((== renamedCol) . columnDefinitionName) (tableDefinition updatedTable)
+  assertBool "Old Column should not be in the table" (not oldColumnExists)
+  assertBool "new Column should be in the table" newColumnExists
+
 ------------------- CREATE TABLE ------------------------
 executeCreate :: (MonadDatabase m) => TableName -> [ColumnDefinition] -> m (Either StatementFailureType [Row])
 executeCreate tableName colDefs = do
@@ -261,6 +332,71 @@ executeCreateIndex indexName tableName colNames = do
             addIndexNameToTable :: IndexName -> Table -> Table
             addIndexNameToTable indexName table =
               table {tableIndices = indexName : tableIndices table}
+
+test_createIndices :: Test
+test_createIndices = TestList [test_createIndex, test_createDuplicateIndex, test_createIndexOnNonExistentTable]
+
+test_createIndex :: Test
+test_createIndex = TestCase $ do
+  let tableName = TableName "testTable"
+  let colDefs = [ColumnDefinition (ColumnName "col1") CellTypeInt]
+  let initialTable = Table {tableName = tableName, tableDefinition = colDefs, tableRows = Map.empty, tableNextPrimaryKey = PrimaryKey 0, tableIndices = []}
+  initialTableVar <- liftIO $ newTVarIO initialTable
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  let indexName = IndexName "testIndex"
+  let colNames = [ColumnName "col1"]
+  let result = runStateT (executeCreateIndex indexName tableName colNames) initialDb
+  (outcome, finalDb) <- liftIO result
+
+  assertEqual "executeCreateIndex should succeed" (Right []) outcome
+
+  let indexExists = Map.member indexName (databaseIndices finalDb)
+  assertBool "Index should be created" indexExists
+
+  let tableVar = databaseTables finalDb Map.! tableName
+  table <- liftIO $ readTVarIO tableVar
+  let indexNameInTable = indexName `elem` tableIndices table
+  assertBool "Index name should be added to table" indexNameInTable
+
+test_createDuplicateIndex :: Test
+test_createDuplicateIndex = TestCase $ do
+  let tableName = TableName "testTable"
+  let colDefs = [ColumnDefinition (ColumnName "col1") CellTypeInt]
+  let initialTable = Table {tableName = tableName, tableDefinition = colDefs, tableRows = Map.empty, tableNextPrimaryKey = PrimaryKey 0, tableIndices = []}
+  initialTableVar <- liftIO $ newTVarIO initialTable
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  let indexName = IndexName "testIndex"
+  let colNames = [ColumnName "col1"]
+  let result = runStateT (executeCreateIndex indexName tableName colNames) initialDb
+  (outcome, finalDb) <- liftIO result
+
+  assertEqual "executeCreateIndex should succeed" (Right []) outcome
+
+  let indexExists = Map.member indexName (databaseIndices finalDb)
+  assertBool "Index should be created" indexExists
+
+  let duplicateResult = runStateT (executeCreateIndex indexName tableName colNames) finalDb
+  (duplicateOutcome, _) <- liftIO duplicateResult
+
+  assertEqual "executeCreateIndex should fail" (Left IndexAlreadyExists) duplicateOutcome
+
+test_createIndexOnNonExistentTable :: Test
+test_createIndexOnNonExistentTable = TestCase $ do
+  let tableName = TableName "testTable"
+  let colDefs = [ColumnDefinition (ColumnName "col1") CellTypeInt]
+  let initialTable = Table {tableName = tableName, tableDefinition = colDefs, tableRows = Map.empty, tableNextPrimaryKey = PrimaryKey 0, tableIndices = []}
+  initialTableVar <- liftIO $ newTVarIO initialTable
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  let indexName = IndexName "testIndex"
+  let colNames = [ColumnName "col1"]
+  let nonExistentTable = TableName "nonExistentTable"
+  let result = runStateT (executeCreateIndex indexName nonExistentTable colNames) initialDb
+  (outcome, _) <- liftIO result
+
+  assertEqual "executeCreateIndex should fail" (Left TableDoesNotExist) outcome
 
 ------------------- DROP TABLE ------------------------
 executeDrop :: (MonadDatabase m) => TableName -> m (Either StatementFailureType [Row])
@@ -333,7 +469,7 @@ testExecuteDropIndex = TestCase $ do
   assertBool "Index should be removed" (not indexExists)
 
 testExecuteStatement :: Test
-testExecuteStatement = TestList [testSelectTable, testInsertTable, testCreateTable, testExecuteDrop, testExecuteDropIndex]
+testExecuteStatement = TestList [testSelectTable, testInsertTable, testAlterTable, testCreateTable, test_createIndices, testExecuteDrop, testExecuteDropIndex]
 
 runTests :: IO Counts
 runTests = runTestTT testExecuteStatement
