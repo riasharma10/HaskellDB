@@ -197,23 +197,17 @@ executeDrop tableName = do
 -- TEST:
 testExecuteDrop :: Test
 testExecuteDrop = TestCase $ do
-  -- Initial setup
   let tableName = TableName "testTable"
   initialTableVar <- liftIO $ newTVarIO $ createEmptyTable tableName -- Assuming a function to create an empty table
   let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
 
-  -- Execute drop
   let result = runStateT (executeDrop tableName) initialDb
   (outcome, finalDb) <- liftIO result
 
-  -- Check outcome
   assertEqual "executeDrop should succeed" (Right []) outcome
 
-  -- Check if table is removed
   let tableExists = Map.member tableName (databaseTables finalDb)
   assertBool "Table should be removed" (not tableExists)
-
--- Helper function to create an empty table, modify as per your implementation
 
 ------------------- DROP INDEX ------------------------
 executeDropIndex :: (MonadDatabase m) => IndexName -> m (Either StatementFailureType [Row])
