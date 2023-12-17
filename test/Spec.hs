@@ -1,21 +1,29 @@
 import Control.Concurrent.STM
-import Control.Monad.State
+import Control.Monad
+import Control.Monad.IO.Class
+import Data.Map qualified as Map
 import Lib
-import Test.HUnit
-import Test.QuickCheck
+import Test.HUnit (Counts, Test (TestList), runTestTT)
+import Test.QuickCheck (Arbitrary (arbitrary), Property, quickCheck)
+import Test.QuickCheck.Monadic
+import TestParser
 
 main :: IO ()
 main = do
-  putStrLn "Test suite not yet implemented"
+  runTestTT testParse
+  quickCheck prop_createInsertSelect
 
-prop_CreateInsertSelect :: String -> Bool
-prop_CreateInsertSelect s =
-  s
-    == ( do
-           execStatement $ emptyDB (StatementCreate "table" [ColumnDefinition (ColumnName "column") CellTypeString])
-           execStatement $ db (StatementInsert (createRow s) (TableName "table"))
-           return $ execStatement $ db' (StatementSelect [ColumnName "column"] (TableName "table") [])
-       )
+prop_createInsertSelect = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    db <- emptyDB
+    executeStatement
+      db
+      ( StatementCreate (TableName "table") [ColumnDefinition (ColumnName "column") CellTypeString]
+      )
+    executeStatement db (StatementInsert (createRow s) (TableName "table"))
+    executeStatement db (StatementSelect [ColumnName "column"] (TableName "table") [])
+  assert (res == Success [])
 
 createRow :: String -> Row
-createRow s = newTVar [CellString s]
+createRow s = Row $ Map.singleton (ColumnName "column") (CellString s)

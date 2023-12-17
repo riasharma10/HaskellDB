@@ -115,6 +115,6 @@ class (MonadState Database m, MonadIO m) => MonadDatabase m
 
 instance MonadDatabase (StateT Database IO)
 
-newtype Response = Response {res :: String} deriving (Eq, Show, Ord)
+data Response = Error StatementFailureType | Success [Row] deriving (Eq, Show)
 
 type DBRef = TVar Database

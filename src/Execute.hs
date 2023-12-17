@@ -32,26 +32,28 @@ createEmptyTable name =
 createEmptyIndex :: IndexName -> TableName -> Index
 createEmptyIndex name tableName = Index {indexName = name, indexTable = tableName, indexColumns = [], indexData = Map.empty}
 
-executeStatement :: (MonadDatabase m) => Statement -> m (Either StatementFailureType [Row])
-executeStatement statement = case statement of
-  StatementSelect cols table whereClauses -> executeSelect cols table whereClauses
-  StatementInsert row table -> executeInsert row table
-  StatementAlter table action -> executeAlter table action
-  StatementCreate table colDefs -> executeCreate table colDefs
-  StatementCreateIndex indexName table cols -> executeCreateIndex indexName table cols
-  StatementDrop table -> executeDrop table
-  StatementDropIndex indexName -> executeDropIndex indexName
+executeStatement :: DBRef -> Statement -> STM Response
+executeStatement tdb statement = case statement of
+  StatementSelect cols table whereClauses -> executeSelect tdb cols table whereClauses
+  _ -> undefined
+
+-- StatementInsert row table -> executeInsert row table
+-- StatementAlter table action -> executeAlter table action
+-- StatementCreate table colDefs -> executeCreate table colDefs
+-- StatementCreateIndex indexName table cols -> executeCreateIndex indexName table cols
+-- StatementDrop table -> executeDrop table
+-- StatementDropIndex indexName -> executeDropIndex indexName
 
 ------------------- SELECT ------------------------
-executeSelect :: (MonadDatabase m) => [ColumnName] -> TableName -> [WhereClause] -> m (Either StatementFailureType [Row])
-executeSelect cols tableName whereClauses = do
-  db <- get
+executeSelect :: DBRef -> [ColumnName] -> TableName -> [WhereClause] -> STM Response
+executeSelect tdb cols tableName whereClauses = do
+  db <- readTVar tdb
   case Map.lookup tableName (databaseTables db) of
-    Nothing -> return $ Left TableDoesNotExist
+    Nothing -> return $ Error TableDoesNotExist
     Just tableVar -> do
-      table <- liftIO $ readTVarIO tableVar
+      table <- readTVar tableVar
       let filteredRows = filter (applyWhereClauses whereClauses) (Map.elems $ tableRows table)
-      return $ Right $ map (selectColumns cols) filteredRows
+      return $ Success $ map (selectColumns cols) filteredRows
 
 applyWhereClauses :: [WhereClause] -> Row -> Bool
 applyWhereClauses clauses (Row cellsMap) =
@@ -76,22 +78,20 @@ testSelectTable = TestCase $ do
   let initialTable = Table {tableName = tableName, tableDefinition = colDefs, tableRows = Map.fromList [(PrimaryKey 0, Row $ Map.fromList [(ColumnName "col1", CellInt 123)])], tableNextPrimaryKey = PrimaryKey 1, tableIndices = []}
   initialTableVar <- liftIO $ newTVarIO initialTable
   let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+  tdb <- newTVarIO initialDb
 
   let cols = [ColumnName "col1"]
   let whereClauses = [WhereClause (ColumnName "col1") (CellInt 123)]
 
-  let selectResult = runStateT (executeSelect cols tableName whereClauses) initialDb
-  (selectOutcome, _) <- liftIO selectResult
+  res <- atomically $ executeSelect tdb cols tableName whereClauses
 
-  case selectOutcome of
-    Right rows -> assertBool "Should return at least one row" (not (null rows))
-    Left _ -> assertFailure "Selection should succeed"
+  case res of
+    Success rows -> assertBool "Should return at least one row" (not (null rows))
+    Error _ -> assertFailure "Selection should succeed"
 
   let nonExistentTable = TableName "nonExistentTable"
-  let failSelectResult = runStateT (executeSelect cols nonExistentTable whereClauses) initialDb
-  (failSelectOutcome, _) <- liftIO failSelectResult
-
-  assertEqual "Selecting from a non-existent table should fail" (Left TableDoesNotExist) failSelectOutcome
+  failRes <- atomically $ executeSelect tdb cols nonExistentTable whereClauses
+  assertEqual "Selecting from a non-existent table should fail" (Error TableDoesNotExist) failRes
 
 ------------------- INSERT ------------------------
 executeInsert :: (MonadDatabase m) => Row -> TableName -> m (Either StatementFailureType [Row])
