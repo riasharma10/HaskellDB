@@ -128,7 +128,7 @@ createIndexParser = StatementCreateIndex <$> (P.string "CREATE INDEX" *> P.space
     indexName = IndexName <$> identifier
 
 parsedAlterAction :: Parser AlterAction
-parsedAlterAction = P.choice [addColumn, dropColumn, renameColumn, modifyColumn]
+parsedAlterAction = P.choice [addColumn, dropColumn, renameColumn]
   where
     addColumn = AddColumn <$> (P.string "ADD COLUMN" *> P.space *> columnDefinition)
     dropColumn = DropColumn <$> (P.string "DROP COLUMN" *> P.space *> columnName)
