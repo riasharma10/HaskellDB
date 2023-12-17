@@ -113,6 +113,8 @@ data Database = Database
 
 class (MonadState Database m, MonadIO m) => MonadDatabase m
 
+instance MonadDatabase (StateT Database IO)
+
 newtype Response = Response {res :: String} deriving (Eq, Show, Ord)
 
 type DBRef = TVar Database

@@ -5,6 +5,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State
 import Data.IntMap (update)
 import Data.Map qualified as Map
+import Test.HUnit
 import Types
 
 emptyDB :: STM DBRef
@@ -15,6 +16,17 @@ defaultCellValue CellTypeInt = CellInt 0
 defaultCellValue CellTypeString = CellString ""
 defaultCellValue CellTypeBool = CellBool False
 
+createEmptyTable :: TableName -> Table
+createEmptyTable name =
+  Table
+    { tableName = name,
+      tableDefinition = [],
+      tableRows = Map.empty,
+      tableNextPrimaryKey = PrimaryKey 0,
+      tableIndices = []
+    }
+
+------------------- SELECT ------------------------
 executeStatement :: (MonadDatabase m) => Statement -> m (Either StatementFailureType [Row])
 executeStatement statement = case statement of
   StatementSelect cols table whereClauses -> executeSelect cols table whereClauses
@@ -50,6 +62,7 @@ selectColumns :: [ColumnName] -> Row -> Row
 selectColumns cols (Row cellsMap) =
   Row $ Map.filterWithKey (\k _ -> k `elem` cols) cellsMap
 
+------------------- INSERT ------------------------
 executeInsert :: (MonadDatabase m) => Row -> TableName -> m (Either StatementFailureType [Row])
 executeInsert row tableName = do
   db <- get
@@ -66,6 +79,7 @@ executeInsert row tableName = do
     incrementPrimaryKey :: PrimaryKey -> PrimaryKey
     incrementPrimaryKey (PrimaryKey k) = PrimaryKey (k + 1)
 
+------------------- ALTER TABLE ------------------------
 executeAlter :: (MonadDatabase m) => TableName -> AlterAction -> m (Either StatementFailureType [Row])
 executeAlter tableName action = do
   db <- get
@@ -129,6 +143,7 @@ renameCellInRow oldName newName (Row rowMap) =
     Just cell -> Row $ Map.insert newName cell $ Map.delete oldName rowMap
     Nothing -> Row rowMap
 
+------------------- CREATE TABLE ------------------------
 executeCreate :: (MonadDatabase m) => TableName -> [ColumnDefinition] -> m (Either StatementFailureType [Row])
 executeCreate tableName colDefs = do
   db <- get
@@ -149,6 +164,7 @@ executeCreate tableName colDefs = do
       put updatedDb
       return $ Right []
 
+------------------- CREATE INDEX ------------------------
 executeCreateIndex :: (MonadDatabase m) => IndexName -> TableName -> [ColumnName] -> m (Either StatementFailureType [Row])
 executeCreateIndex indexName tableName colNames = do
   db <- get
@@ -166,6 +182,7 @@ executeCreateIndex indexName tableName colNames = do
           put updatedDb
           return $ Right []
 
+------------------- DROP TABLE ------------------------
 executeDrop :: (MonadDatabase m) => TableName -> m (Either StatementFailureType [Row])
 executeDrop tableName = do
   db <- get
@@ -177,6 +194,28 @@ executeDrop tableName = do
       put updatedDb
       return $ Right []
 
+-- TEST:
+testExecuteDrop :: Test
+testExecuteDrop = TestCase $ do
+  -- Initial setup
+  let tableName = TableName "testTable"
+  initialTableVar <- liftIO $ newTVarIO $ createEmptyTable tableName -- Assuming a function to create an empty table
+  let initialDb = Database (Map.singleton tableName initialTableVar) Map.empty
+
+  -- Execute drop
+  let result = runStateT (executeDrop tableName) initialDb
+  (outcome, finalDb) <- liftIO result
+
+  -- Check outcome
+  assertEqual "executeDrop should succeed" (Right []) outcome
+
+  -- Check if table is removed
+  let tableExists = Map.member tableName (databaseTables finalDb)
+  assertBool "Table should be removed" (not tableExists)
+
+-- Helper function to create an empty table, modify as per your implementation
+
+------------------- DROP INDEX ------------------------
 executeDropIndex :: (MonadDatabase m) => IndexName -> m (Either StatementFailureType [Row])
 executeDropIndex indexName = do
   db <- get
