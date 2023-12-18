@@ -4,29 +4,158 @@ import Control.Monad.IO.Class
 import Data.Map qualified as Map
 import Lib
 import Test.HUnit (Counts, Test (TestCase, TestList), assertBool, assertEqual, assertFailure, runTestTT)
-import Test.QuickCheck (Arbitrary (arbitrary), Property, quickCheck)
+import Test.QuickCheck (Arbitrary (arbitrary), Gen, Property, quickCheck)
+import Test.QuickCheck qualified as QC
 import Test.QuickCheck.Monadic
 
-main :: IO Counts
+main :: IO ()
 main = do
-  runTestTT $ TestList [testSelectTable, testInsertTable, testCreateTable, testExecuteDrop, testExecuteDropIndex]
+  runTestTT $
+    TestList
+      [ testSelectTable,
+        testInsertTable,
+        testCreateTable,
+        testExecuteDrop,
+        testExecuteDropIndex
+      ]
+  quickCheck prop_createInsertSelect
+  quickCheck prop_createInsertSelectWhere
+  quickCheck prop_createInsertSelectWhereFalse
+  quickCheck prop_createInsertSelectWhereTrueFalse
+  quickCheck prop_selectNoCols
+  quickCheck prop_createDropSelect
+  quickCheck prop_createRenameSelectOld
+  quickCheck prop_createRenameSelectNew
+  quickCheck prop_createDeleteSelect
+  quickCheck prop_createAddSelect
 
--- quickCheck prop_createInsertSelect
+instance Arbitrary Cell where
+  arbitrary :: Gen Cell
+  arbitrary =
+    QC.oneof
+      [ CellInt <$> arbitrary,
+        CellString <$> arbitrary,
+        CellBool <$> arbitrary
+      ]
 
--- prop_createInsertSelect = monadicIO $ do
---   s :: String <- pick arbitrary
---   res <- run $ atomically $ do
---     db <- emptyDB
---     executeStatement
---       db
---       ( StatementCreate (TableName "table") [ColumnDefinition (ColumnName "column") CellTypeString]
---       )
---     executeStatement db (StatementInsert (createRow s) (TableName "table"))
---     executeStatement db (StatementSelect [ColumnName "column"] (TableName "table") [])
---   assert (res == Success [])
+prop_createInsertSelect = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    tdb <- createDummyDb s
+    executeStatement tdb (StatementSelect [ColumnName "column"] (TableName "table") [])
+  assert (res == Success [createRow s])
 
--- createRow :: String -> Row
--- createRow s = Row $ Map.singleton (ColumnName "column") (CellString s)
+createDummyDb :: String -> STM DBRef
+createDummyDb s = do
+  tdb <- emptyDB
+  executeStatement
+    tdb
+    ( StatementCreate (TableName "table") [ColumnDefinition (ColumnName "column") CellTypeString]
+    )
+  executeStatement tdb (StatementInsert (createRow s) (TableName "table"))
+  return tdb
+
+createRow :: String -> Row
+createRow s = Row $ Map.singleton (ColumnName "column") (CellString s)
+
+prop_createInsertSelectWhere :: Property
+prop_createInsertSelectWhere = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    tdb <- createDummyDb s
+    executeStatement tdb (StatementSelect [ColumnName "column"] (TableName "table") [WhereClause (ColumnName "column") (CellString s)])
+  assert (res == Success [createRow s])
+
+prop_createInsertSelectWhereFalse :: Property
+prop_createInsertSelectWhereFalse = monadicIO $ do
+  s1 :: String <- pick arbitrary
+  s2 :: String <- pick arbitrary
+  pre (s1 /= s2)
+  res <- run $ atomically $ do
+    tdb <- createDummyDb s1
+    executeStatement tdb (StatementSelect [ColumnName "column"] (TableName "table") [WhereClause (ColumnName "column") (CellString s2)])
+  assert (res == Success [])
+
+prop_createInsertSelectWhereTrueFalse :: Property
+prop_createInsertSelectWhereTrueFalse = monadicIO $ do
+  s1 :: String <- pick arbitrary
+  s2 :: String <- pick arbitrary
+  pre (s1 /= s2)
+  res <- run $ atomically $ do
+    tdb <- createDummyDb s1
+    executeStatement
+      tdb
+      ( StatementSelect
+          [ColumnName "column"]
+          (TableName "table")
+          [WhereClause (ColumnName "column") (CellString s1), WhereClause (ColumnName "column") (CellString s2)]
+      )
+  assert (res == Success [])
+
+prop_selectNoCols :: Property
+prop_selectNoCols = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    tdb <- emptyDB
+    executeCreate tdb (TableName "table") []
+    executeSelect tdb [ColumnName s] (TableName "table") []
+  assert (res == Error ColumnDoesNotExist)
+
+prop_createDropSelect :: Property
+prop_createDropSelect = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    tdb <- createDummyDb s
+    executeStatement tdb (StatementDrop (TableName "table"))
+    executeStatement tdb (StatementSelect [] (TableName "table") [])
+  assert (res == Error TableDoesNotExist)
+
+prop_createRenameSelectOld :: Property
+prop_createRenameSelectOld = monadicIO $ do
+  s1 :: String <- pick arbitrary
+  s2 :: String <- pick arbitrary
+  pre (s1 /= s2)
+  res <- run $ atomically $ do
+    tdb <- createAndRenameCol s1 s2
+    executeStatement tdb (StatementSelect [ColumnName s1] (TableName "table") [])
+  assert (res == Error ColumnDoesNotExist)
+
+createAndRenameCol :: String -> String -> STM DBRef
+createAndRenameCol s1 s2 = do
+  tdb <- emptyDB
+  executeStatement tdb (StatementCreate (TableName "table") [ColumnDefinition (ColumnName s1) CellTypeString])
+  executeStatement tdb (StatementAlter (TableName "table") (RenameColumn (ColumnName s1) (ColumnName s2)))
+  return tdb
+
+prop_createRenameSelectNew :: Property
+prop_createRenameSelectNew = monadicIO $ do
+  s1 :: String <- pick arbitrary
+  s2 :: String <- pick arbitrary
+  pre (s1 /= s2)
+  res <- run $ atomically $ do
+    tdb <- createAndRenameCol s1 s2
+    executeStatement tdb (StatementSelect [ColumnName s2] (TableName "table") [])
+  assert (res == Success [])
+
+prop_createDeleteSelect :: Property
+prop_createDeleteSelect = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    tdb <- emptyDB
+    executeStatement tdb (StatementCreate (TableName "table") [ColumnDefinition (ColumnName s) CellTypeString])
+    executeStatement tdb (StatementAlter (TableName "table") (DropColumn $ ColumnName s))
+    executeStatement tdb (StatementSelect [ColumnName s] (TableName "table") [])
+  assert (res == Error ColumnDoesNotExist)
+
+prop_createAddSelect :: Property
+prop_createAddSelect = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <- run $ atomically $ do
+    tdb <- emptyDB
+    executeStatement tdb (StatementCreate (TableName "table") [])
+    executeStatement tdb (StatementAlter (TableName "table") (AddColumn $ ColumnDefinition (ColumnName s) CellTypeString))
+    executeStatement tdb (StatementSelect [ColumnName s] (TableName "table") [])
+  assert (res == Success [])
 
 testSelectTable :: Test
 testSelectTable = TestCase $ do

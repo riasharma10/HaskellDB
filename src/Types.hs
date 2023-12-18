@@ -23,8 +23,6 @@ import Control.Monad.IO.Class
 import Control.Monad.State
 import Data.Map (Map)
 
--- import Data.Aeson
-
 newtype TableName = TableName {unTableName :: String} deriving (Eq, Show, Ord)
 
 data CellType = CellTypeInt | CellTypeString | CellTypeBool deriving (Eq, Show, Ord)
@@ -34,8 +32,6 @@ data Cell where
   CellString :: String -> Cell
   CellBool :: Bool -> Cell
   deriving (Eq, Show, Ord)
-
--- newtype Row = TVar [Cell] deriving (Eq, Show, Ord)
 
 newtype Row = Row (Map ColumnName Cell) deriving (Eq, Show, Ord)
 

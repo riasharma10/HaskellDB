@@ -5,6 +5,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State
 import Data.IntMap (update)
 import Data.Map qualified as Map
+import Data.Set qualified as Set
 import GHC.IO.Device (IODevice (dup))
 import Test.HUnit
 import Types
@@ -42,7 +43,6 @@ executeStatement tdb statement = case statement of
   StatementDrop table -> executeDrop tdb table
   StatementDropIndex indexName -> executeDropIndex tdb indexName
 
-------------------- SELECT ------------------------
 executeSelect :: DBRef -> [ColumnName] -> TableName -> [WhereClause] -> STM Response
 executeSelect tdb cols tableName whereClauses = do
   db <- readTVar tdb
@@ -50,25 +50,25 @@ executeSelect tdb cols tableName whereClauses = do
     Nothing -> return $ Error TableDoesNotExist
     Just tableVar -> do
       table <- readTVar tableVar
-      let filteredRows = filter (applyWhereClauses whereClauses) (Map.elems $ tableRows table)
-      return $ Success $ map (selectColumns cols) filteredRows
+      if hasAllColumns table cols
+        then
+          let filteredRows = filter (applyWhereClauses whereClauses) (Map.elems $ tableRows table)
+           in return $ Success $ map (selectColumns cols) filteredRows
+        else return $ Error ColumnDoesNotExist
+
+hasAllColumns :: Table -> [ColumnName] -> Bool
+hasAllColumns table cols =
+  let columnSet = Set.fromList (map columnDefinitionName (tableDefinition table))
+   in all (`Set.member` columnSet) cols
 
 applyWhereClauses :: [WhereClause] -> Row -> Bool
 applyWhereClauses clauses (Row cellsMap) =
-  all (\(WhereClause col val) -> maybe False (cellMatchesValue val) (Map.lookup col cellsMap)) clauses
-
-cellMatchesValue :: Cell -> Cell -> Bool
-cellMatchesValue cell value = case (cell, value) of
-  (CellInt a, CellInt b) -> a == b
-  (CellString a, CellString b) -> a == b
-  (CellBool a, CellBool b) -> a == b
-  _ -> False
+  all (\(WhereClause col val) -> Just val == Map.lookup col cellsMap) clauses
 
 selectColumns :: [ColumnName] -> Row -> Row
 selectColumns cols (Row cellsMap) =
   Row $ Map.filterWithKey (\k _ -> k `elem` cols) cellsMap
 
-------------------- INSERT ------------------------
 executeInsert :: DBRef -> Row -> TableName -> STM Response
 executeInsert tdb row tableName = do
   db <- readTVar tdb
@@ -85,7 +85,6 @@ executeInsert tdb row tableName = do
     incrementPrimaryKey :: PrimaryKey -> PrimaryKey
     incrementPrimaryKey (PrimaryKey k) = PrimaryKey (k + 1)
 
-------------------- ALTER TABLE ------------------------
 executeAlter :: DBRef -> TableName -> AlterAction -> STM Response
 executeAlter tdb tableName action = do
   db <- readTVar tdb
@@ -149,7 +148,6 @@ renameCellInRow oldName newName (Row rowMap) =
     Just cell -> Row $ Map.insert newName cell $ Map.delete oldName rowMap
     Nothing -> Row rowMap
 
-------------------- CREATE TABLE ------------------------
 executeCreate :: DBRef -> TableName -> [ColumnDefinition] -> STM Response
 executeCreate tdb tableName colDefs = do
   db <- readTVar tdb
