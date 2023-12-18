@@ -111,6 +111,13 @@ class (MonadState Database m, MonadIO m) => MonadDatabase m
 
 instance MonadDatabase (StateT Database IO)
 
-data Response = Error StatementFailureType | Success [Row] deriving (Eq, Show)
+data Response
+  = Error StatementFailureType
+  | Success [Row]
+  deriving (Eq, Show)
+
+data TransactionResponse
+  = TransactionError
+  | TransactionSuccess [Response]
 
 type DBRef = TVar Database
