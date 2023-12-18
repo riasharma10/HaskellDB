@@ -119,5 +119,6 @@ data Response
 data TransactionResponse
   = TransactionError
   | TransactionSuccess [Response]
+  deriving (Eq, Show)
 
 type DBRef = TVar Database

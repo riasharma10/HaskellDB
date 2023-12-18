@@ -1,3 +1,4 @@
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.IO.Class
@@ -28,6 +29,8 @@ main = do
   quickCheck prop_createRenameSelectNew
   quickCheck prop_createDeleteSelect
   quickCheck prop_createAddSelect
+  testConcurrentTransactions
+  putStrLn "Tests completed"
 
 instance Arbitrary Cell where
   arbitrary :: Gen Cell
@@ -156,6 +159,36 @@ prop_createAddSelect = monadicIO $ do
     executeStatement tdb (StatementAlter (TableName "table") (AddColumn $ ColumnDefinition (ColumnName s) CellTypeString))
     executeStatement tdb (StatementSelect [ColumnName s] (TableName "table") [])
   assert (res == Success [])
+
+testConcurrentTransactions = do
+  tdb <- atomically emptyDB
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  forkIO (quickCheck $ prop_createInsertSelectDrop tdb)
+  threadDelay (10 ^ 6) -- Hack to wait for threads to run
+
+prop_createInsertSelectDrop :: DBRef -> Property
+prop_createInsertSelectDrop tdb = monadicIO $ do
+  s :: String <- pick arbitrary
+  res <-
+    run $
+      executeTransaction
+        tdb
+        ( Atomic
+            [ StatementCreate (TableName "table") [ColumnDefinition (ColumnName "column") CellTypeString],
+              StatementInsert (createRow s) (TableName "table"),
+              StatementSelect [ColumnName "column"] (TableName "table") [],
+              StatementDrop (TableName "table")
+            ]
+        )
+  assert (res == TransactionSuccess [Success [], Success [], Success [createRow s], Success []])
 
 testSelectTable :: Test
 testSelectTable = TestCase $ do
