@@ -7,6 +7,9 @@ import Data.Map as Map
 import Parser (Parser)
 import Parser qualified as P
 import Types
+import Test.HUnit
+import Debug.Trace (trace)
+
 
 alphaNum :: Parser Char
 alphaNum = P.satisfy isAlphaNum
@@ -58,6 +61,7 @@ selectParser =
     <$> (P.string "SELECT" *> P.space *> columnNames <* P.space)
     <*> (P.string "FROM" *> P.space *> parsedTableName)
     <*> optionalWhereClause
+    <* P.char ';'
   where
     columnNames = P.sepBy columnName (P.char ',' <* P.space)
     optionalWhereClause = (P.space *> P.string "WHERE" *> P.space *> whereClauses) <|> pure []
@@ -68,44 +72,51 @@ insertParser =
     (\tableName columnNames cells -> StatementInsert (Row $ Map.fromList (zip columnNames cells)) tableName)
     (P.string "INSERT INTO" *> P.space *> parsedTableName <* P.space)
     (P.char '(' *> P.sepBy1 columnName (P.char ',' *> P.space) <* P.string ")" <* P.space <* P.string "VALUES" <* P.space)
-    (P.sepBy1 parsedCell (P.char ',' *> P.space) <* P.eof)
+    (P.sepBy1 parsedCell (P.char ',' *> P.space) <* P.char ';')
 
 dropParser :: Parser Statement
-dropParser = StatementDrop <$> (P.string "DROP TABLE" *> P.space *> parsedTableName <* P.eof)
+dropParser = StatementDrop <$> (P.string "DROP TABLE" *> P.space *> parsedTableName <* P.char ';')
 
 dropIndexParser :: Parser Statement
-dropIndexParser = StatementDropIndex <$> (P.string "DROP INDEX" *> P.space *> indexName <* P.eof)
+dropIndexParser = StatementDropIndex <$> (P.string "DROP INDEX" *> P.space *> indexName <* P.char ';')
   where
     indexName = IndexName <$> identifier
 
 createParser :: Parser Statement
-createParser = StatementCreate <$> (P.string "CREATE TABLE" *> P.space *> parsedTableName) <*> (P.space *> P.char '(' *> P.sepBy columnDefinition (P.char ',' <* P.space) <* P.char ')' <* P.eof)
+createParser = StatementCreate <$> (P.string "CREATE TABLE" *> P.space *> parsedTableName) <*> (P.space *> P.char '(' *> P.sepBy columnDefinition (P.char ',' <* P.space) <* P.char ')' <* P.char ';')
   where
     columnDefinition = ColumnDefinition <$> columnName <*> (P.space *> cellType)
     cellType = CellTypeInt <$ P.string "INT" <|> CellTypeString <$ P.string "STRING" <|> CellTypeBool <$ P.string "BOOL"
 
 createIndexParser :: Parser Statement
-createIndexParser = StatementCreateIndex <$> (P.string "CREATE INDEX" *> P.space *> indexName) <*> (P.space *> P.string "ON" *> P.space *> parsedTableName) <*> (P.space *> P.char '(' *> P.sepBy columnName (P.char ',' <* P.space) <* P.char ')' <* P.eof)
+createIndexParser = StatementCreateIndex <$> (P.string "CREATE INDEX" *> P.space *> indexName) <*> (P.space *> P.string "ON" *> P.space *> parsedTableName) <*> (P.space *> P.char '(' *> P.sepBy columnName (P.char ',' <* P.space) <* P.char ')' <* P.char ';')
   where
     indexName = IndexName <$> identifier
 
 parsedAlterAction :: Parser AlterAction
-parsedAlterAction = P.choice [addColumn, dropColumn, renameColumn, modifyColumn]
+parsedAlterAction = P.choice [addColumn, dropColumn, renameColumn]
   where
     addColumn = AddColumn <$> (P.string "ADD COLUMN" *> P.space *> columnDefinition)
     dropColumn = DropColumn <$> (P.string "DROP COLUMN" *> P.space *> columnName)
     renameColumn = RenameColumn <$> (P.string "RENAME COLUMN" *> P.space *> columnName) <*> (P.space *> P.string "TO" *> P.space *> columnName)
-    modifyColumn = undefined
     columnDefinition = ColumnDefinition <$> columnName <*> (P.space *> cellType)
     cellType = CellTypeInt <$ P.string "INT" <|> CellTypeString <$ P.string "STRING" <|> CellTypeBool <$ P.string "BOOL"
 
 alterParser :: Parser Statement
-alterParser = StatementAlter <$> (P.string "ALTER TABLE" *> P.space *> parsedTableName) <*> (P.space *> parsedAlterAction <* P.eof)
+alterParser = StatementAlter <$> (P.string "ALTER TABLE" *> P.space *> parsedTableName) <*> (P.space *> parsedAlterAction <* P.char ';')
 
--- Combine all statement parsers
 statementParser :: Parser Statement
 statementParser = P.choice [selectParser, insertParser, alterParser, dropParser, dropIndexParser, createParser, createIndexParser]
 
--- Example of how to use the parser
 parseSQL :: String -> Either P.ParseError Statement
 parseSQL = P.parse statementParser
+
+transactionParser :: Parser Transaction
+transactionParser = Atomic <$> (P.string "BEGIN TRANSACTION" *> P.char ';' *> many P.space *> P.sepBy statementParser P.space <* many P.space <* P.string "COMMIT TRANSACTION")
+
+
+parseTransaction :: String -> Either P.ParseError Transaction
+parseTransaction = P.parse transactionParser
+
+parseStatements :: String -> Either P.ParseError [Statement]
+parseStatements = P.parse (P.sepBy statementParser P.space)

@@ -19,7 +19,9 @@ testParse =
       test_dropQuery,
       test_dropIndexQuery,
       test_createTableQuery,
-      test_createIndexQuery
+      test_createIndexQuery,
+      test_parseStatements,
+      test_parseTransactions
     ]
 
 test_columnName :: Test
@@ -54,65 +56,88 @@ test_parseWhereClauses =
 test_selectQuery :: Test
 test_selectQuery =
   TestList
-    [ parseSQL "SELECT id, name FROM users WHERE id = 1" ~?= Right (StatementSelect [ColumnName "id", ColumnName "name"] (TableName "users") [WhereClause (ColumnName "id") (CellInt 1)]),
-      parseSQL "SELECT id, name FROM users" ~?= Right (StatementSelect [ColumnName "id", ColumnName "name"] (TableName "users") []),
-      parseSQL "SELECT id, name FROM users WHERE id = 1 AND name = \"rias\"" ~?= Right (StatementSelect [ColumnName "id", ColumnName "name"] (TableName "users") [WhereClause (ColumnName "id") (CellInt 1), WhereClause (ColumnName "name") (CellString "rias")]),
-      parseSQL "SELECT id FROM users" ~?= Right (StatementSelect [ColumnName "id"] (TableName "users") []),
-      parseSQL "select id FROM users" ~?= Left "No parses",
-      parseSQL "SELECT id from users" ~?= Left "No parses"
+    [ parseSQL "SELECT id, name FROM users WHERE id = 1;" ~?= Right (StatementSelect [ColumnName "id", ColumnName "name"] (TableName "users") [WhereClause (ColumnName "id") (CellInt 1)]),
+      parseSQL "SELECT id, name FROM users;" ~?= Right (StatementSelect [ColumnName "id", ColumnName "name"] (TableName "users") []),
+      parseSQL "SELECT id, name FROM users WHERE id = 1 AND name = \"rias\";" ~?= Right (StatementSelect [ColumnName "id", ColumnName "name"] (TableName "users") [WhereClause (ColumnName "id") (CellInt 1), WhereClause (ColumnName "name") (CellString "rias")]),
+      parseSQL "SELECT id FROM users;" ~?= Right (StatementSelect [ColumnName "id"] (TableName "users") []),
+      parseSQL "select id FROM users;" ~?= Left "No parses",
+      parseSQL "SELECT id from users;" ~?= Left "No parses"
     ]
 
 test_insertQuery :: Test
 test_insertQuery =
   TestList
-    [ parseSQL "INSERT INTO users (num, name) VALUES 1, \"John Doe\"" ~?= Right (StatementInsert (Row $ Map.fromList [(ColumnName "num", CellInt 1), (ColumnName "name", CellString "John Doe")]) (TableName "users")),
-      parseSQL "INSERT INTO users (num, name, isEligible) VALUES 1, \"John Doe\", TRUE" ~?= Right (StatementInsert (Row $ Map.fromList [(ColumnName "num", CellInt 1), (ColumnName "name", CellString "John Doe"), (ColumnName "isEligible", CellBool True)]) (TableName "users")),
-      parseSQL "INSERT INTO users (num) VALUES 1" ~?= Right (StatementInsert (Row $ Map.fromList [(ColumnName "num", CellInt 1)]) (TableName "users")),
-      parseSQL "INSERT INTO users VALUES" ~?= Left "No parses",
-      parseSQL "INSERT INTO users" ~?= Left "No parses",
-      parseSQL "INSERT INTO users (num, name, isEligible) VALUES 1, \"John Doe\" AND 1" ~?= Left "No parses"
+    [ parseSQL "INSERT INTO users (num, name) VALUES 1, \"John Doe\";" ~?= Right (StatementInsert (Row $ Map.fromList [(ColumnName "num", CellInt 1), (ColumnName "name", CellString "John Doe")]) (TableName "users")),
+      parseSQL "INSERT INTO users (num, name, isEligible) VALUES 1, \"John Doe\", TRUE;" ~?= Right (StatementInsert (Row $ Map.fromList [(ColumnName "num", CellInt 1), (ColumnName "name", CellString "John Doe"), (ColumnName "isEligible", CellBool True)]) (TableName "users")),
+      parseSQL "INSERT INTO users (num) VALUES 1;" ~?= Right (StatementInsert (Row $ Map.fromList [(ColumnName "num", CellInt 1)]) (TableName "users")),
+      parseSQL "INSERT INTO users VALUES;" ~?= Left "No parses",
+      parseSQL "INSERT INTO users;" ~?= Left "No parses",
+      parseSQL "INSERT INTO users (num, name, isEligible) VALUES 1, \"John Doe\" AND 1;" ~?= Left "No parses"
     ]
 
 test_alterQuery :: Test
 test_alterQuery =
   TestList
-    [ parseSQL "ALTER TABLE users ADD COLUMN id INT" ~?= Right (StatementAlter (TableName "users") (AddColumn (ColumnDefinition (ColumnName "id") CellTypeInt))),
-      parseSQL "ALTER TABLE users DROP COLUMN id" ~?= Right (StatementAlter (TableName "users") (DropColumn (ColumnName "id"))),
-      parseSQL "ALTER TABLE users RENAME COLUMN id TO newid" ~?= Right (StatementAlter (TableName "users") (RenameColumn (ColumnName "id") (ColumnName "newid"))),
-      parseSQL "ALTER TABLE users ADD COLUMN id INT AND DROP id" ~?= Left "No parses",
-      parseSQL "ALTER TABLE users" ~?= Left "No parses"
+    [ parseSQL "ALTER TABLE users ADD COLUMN id INT;" ~?= Right (StatementAlter (TableName "users") (AddColumn (ColumnDefinition (ColumnName "id") CellTypeInt))),
+      parseSQL "ALTER TABLE users DROP COLUMN id;" ~?= Right (StatementAlter (TableName "users") (DropColumn (ColumnName "id"))),
+      parseSQL "ALTER TABLE users RENAME COLUMN id TO newid;" ~?= Right (StatementAlter (TableName "users") (RenameColumn (ColumnName "id") (ColumnName "newid"))),
+      parseSQL "ALTER TABLE users ADD COLUMN id INT AND DROP id;" ~?= Left "No parses",
+      parseSQL "ALTER TABLE users;" ~?= Left "No parses"
     ]
 
 test_dropQuery :: Test
 test_dropQuery =
   TestList
-    [ parseSQL "DROP INDEX users" ~?= Right (StatementDropIndex (IndexName "users")),
-      parseSQL "DROP INDEX users AND newusers" ~?= Left "No parses",
-      parseSQL "DROP INDEX" ~?= Left "No parses"
+    [ parseSQL "DROP INDEX users;" ~?= Right (StatementDropIndex (IndexName "users")),
+      parseSQL "DROP INDEX;" ~?= Left "No parses"
     ]
 
 test_dropIndexQuery :: Test
 test_dropIndexQuery =
   TestList
-    [ parseSQL "DROP TABLE users" ~?= Right (StatementDrop (TableName "users")),
-      parseSQL "DROP TABLE users AND newusers" ~?= Left "No parses",
-      parseSQL "DROP TABLE" ~?= Left "No parses"
+    [ parseSQL "DROP TABLE users;" ~?= Right (StatementDrop (TableName "users")),
+      parseSQL "DROP TABLE;" ~?= Left "No parses"
     ]
 
 test_createTableQuery :: Test
 test_createTableQuery =
   TestList
-    [ parseSQL "CREATE TABLE users (id INT, name STRING, isEligible BOOL)" ~?= Right (StatementCreate (TableName "users") [ColumnDefinition (ColumnName "id") CellTypeInt, ColumnDefinition (ColumnName "name") CellTypeString, ColumnDefinition (ColumnName "isEligible") CellTypeBool]),
-      parseSQL "CREATE TABLE users (id INT, name STRING, isEligible BOOL) AND newusers (id INT, name STRING, isEligible BOOL)" ~?= Left "No parses",
-      parseSQL "CREATE TABLE users" ~?= Left "No parses",
-      parseSQL "CREATE TABLE users (id int, name string, isEligible bool)" ~?= Left "No parses"
+    [ parseSQL "CREATE TABLE users (id INT, name STRING, isEligible BOOL);" ~?= Right (StatementCreate (TableName "users") [ColumnDefinition (ColumnName "id") CellTypeInt, ColumnDefinition (ColumnName "name") CellTypeString, ColumnDefinition (ColumnName "isEligible") CellTypeBool]),
+      parseSQL "CREATE TABLE users (id INT, name STRING, isEligible BOOL) AND newusers (id INT, name STRING, isEligible BOOL);" ~?= Left "No parses",
+      parseSQL "CREATE TABLE users;" ~?= Left "No parses",
+      parseSQL "CREATE TABLE users (id int, name string, isEligible bool);" ~?= Left "No parses"
     ]
 
 test_createIndexQuery :: Test
 test_createIndexQuery =
   TestList
-    [ parseSQL "CREATE INDEX index ON users (id, name)" ~?= Right (StatementCreateIndex (IndexName "index") (TableName "users") [ColumnName "id", ColumnName "name"]),
-      parseSQL "CREATE INDEX index ON users (id, name) AND newusers (id, name)" ~?= Left "No parses",
-      parseSQL "CREATE INDEX index ON users" ~?= Left "No parses",
-      parseSQL "CREATE INDEX index ON users (id)" ~?= Right (StatementCreateIndex (IndexName "index") (TableName "users") [ColumnName "id"])
+    [ parseSQL "CREATE INDEX index ON users (id, name);" ~?= Right (StatementCreateIndex (IndexName "index") (TableName "users") [ColumnName "id", ColumnName "name"]),
+      parseSQL "CREATE INDEX index ON users (id, name) AND newusers (id, name);" ~?= Left "No parses",
+      parseSQL "CREATE INDEX index ON users;" ~?= Left "No parses",
+      parseSQL "CREATE INDEX index ON users (id);" ~?= Right (StatementCreateIndex (IndexName "index") (TableName "users") [ColumnName "id"])
+    ]
+
+test_parseStatements :: Test
+test_parseStatements =
+  TestList
+    [ 
+      parseStatements "SELECT id FROM users; " ~?= Right [StatementSelect [ColumnName "id"] (TableName "users") []],
+      parseStatements "SELECT id FROM users; SELECT id FROM users;" ~?= Right [StatementSelect [ColumnName "id"] (TableName "users") [], StatementSelect [ColumnName "id"] (TableName "users") []],
+      parseStatements "DROP TABLE users; " ~?= Right [StatementDrop (TableName "users")],
+      parseStatements "DROP INDEX users;" ~?= Right [StatementDropIndex (IndexName "users")]
+    ]
+
+test_parseTransactions :: Test
+test_parseTransactions =
+  TestList
+    [ parseTransaction "BEGIN TRANSACTION; COMMIT TRANSACTION" ~?= Right (Atomic []), 
+      parseTransaction "BEGIN TRANSACTION; SELECT id FROM user; SELECT id FROM users; COMMIT TRANSACTION" ~?= Right (Atomic [StatementSelect [ColumnName "id"] (TableName "user") [], StatementSelect [ColumnName "id"] (TableName "users") []]),
+      parseTransaction "SELECT id FROM users" ~?= Left "No parses",
+      parseTransaction "SELECT id FROM user; CREATE INDEX index ON users (id, name); INSERT INTO users (id, name) VALUES 1, \"John Doe\";" ~?= Left "No parses",
+      parseTransaction "BEGIN TRANSACTION; DROP TABLE users; COMMIT TRANSACTION" ~?= Right (Atomic [StatementDrop (TableName "users")]),
+      parseTransaction "BEGIN TRANSACTION; DROP INDEX users; COMMIT TRANSACTION" ~?= Right (Atomic [StatementDropIndex (IndexName "users")]),
+      parseTransaction "BEGIN TRANSACTION; DROP TABLE users; DROP INDEX users; COMMIT TRANSACTION" ~?= Right (Atomic [StatementDrop (TableName "users"), StatementDropIndex (IndexName "users")]),
+      parseTransaction "BEGIN TRANSACTION; INSERT INTO users (id, name) VALUES 1, \"John Doe\"; COMMIT TRANSACTION" ~?= Right (Atomic [StatementInsert (Row $ Map.fromList [(ColumnName "id", CellInt 1), (ColumnName "name", CellString "John Doe")]) (TableName "users")]),
+      parseTransaction "BEGIN TRANSACTION; CREATE TABLE users (id INT, name STRING); COMMIT TRANSACTION" ~?= Right (Atomic [StatementCreate (TableName "users") [ColumnDefinition (ColumnName "id") CellTypeInt, ColumnDefinition (ColumnName "name") CellTypeString]]),
+      parseTransaction "BEGIN TRANSACTION; SELECT id FROM user; CREATE INDEX index ON users (id, name); INSERT INTO users (id, name) VALUES 1, \"John Doe\"; COMMIT TRANSACTION" ~?= Right (Atomic [StatementSelect [ColumnName "id"] (TableName "user") [], StatementCreateIndex (IndexName "index") (TableName "users") [ColumnName "id", ColumnName "name"], StatementInsert (Row $ Map.fromList [(ColumnName "id", CellInt 1), (ColumnName "name", CellString "John Doe")]) (TableName "users")])
     ]

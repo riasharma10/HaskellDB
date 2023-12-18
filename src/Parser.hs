@@ -32,6 +32,7 @@ module Parser
     between,
     sepBy1,
     sepBy,
+    try
   )
 where
 
@@ -187,5 +188,10 @@ sepBy p sep = sepBy1 p sep <|> pure []
 --   Returns a list of values returned by @p@.
 sepBy1 :: Parser a -> Parser sep -> Parser [a]
 sepBy1 p sep = (:) <$> p <*> many (sep *> p)
+
+try :: Parser a -> Parser a
+try p = P $ \s -> case doParse p s of
+  Nothing -> Just (error "Backtracked", s)
+  Just result -> Just result
 
 ---------------------------------------------
