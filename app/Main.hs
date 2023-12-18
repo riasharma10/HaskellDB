@@ -8,11 +8,17 @@ import Data.Map qualified as Map
 import Execute
 import GHC.IO.Device (IODevice (dup))
 import StatementParser
+import Transaction
 import Types
 
 processStatement :: DBRef -> Statement -> IO ()
 processStatement tdb statement = do
   outcome <- atomically $ executeStatement tdb statement
+  print outcome
+
+processTransaction :: DBRef -> Transaction -> IO ()
+processTransaction tdb transaction = do
+  outcome <- executeTransaction tdb transaction
   print outcome
 
 mainLoop :: DBRef -> IO ()
@@ -22,9 +28,9 @@ mainLoop tdb = do
   case command of
     ":quit" -> putStrLn "Exiting Haskell Database Engine."
     _ -> do
-      case parseSQL command of
+      case parseTransaction command of
         Left err -> print err
-        Right statement -> processStatement tdb statement
+        Right transaction -> processTransaction tdb transaction
       mainLoop tdb
 
 main :: IO ()
